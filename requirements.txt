@@ -7,4 +7,12 @@ seaborn>=0.12.0
 plotly>=5.14.0
 joblib>=1.2.0
 xgboost>=1.7.0
+statsmodels>=0.14.0
+imbalanced-learn>=0.11.0
+shap>=0.42.0
+prophet>=1.1.0
+tensorflow>=2.10.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pytest>=7.4.0
 
