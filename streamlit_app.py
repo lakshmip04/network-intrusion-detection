@@ -8,6 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 # Page configuration
@@ -41,23 +42,58 @@ st.markdown("""
 @st.cache_data
 def load_data():
     """Load the network logs dataset"""
+    # Try multiple possible paths
+    data_paths = [
+        "Network_logs.csv",  # Current directory
+        os.path.join(os.getcwd(), "Network_logs.csv"),  # Explicit current directory
+    ]
+    
+    # Try to get script directory if __file__ is available
     try:
-        df = pd.read_csv("Network_logs.csv")
-        return df
-    except FileNotFoundError:
-        st.error("Network_logs.csv file not found. Please ensure the file is in the same directory.")
-        return None
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_paths.insert(0, os.path.join(script_dir, "Network_logs.csv"))
+    except:
+        pass
+    
+    for path in data_paths:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                return df
+            except Exception as e:
+                continue
+    
+    st.error("Network_logs.csv file not found. Please ensure the file is in the same directory.")
+    return None
 
 # Load model function with caching
 @st.cache_resource
 def load_model():
     """Load the saved Decision Tree model"""
+    # Try multiple possible paths
+    model_paths = [
+        "network_logs_decision_tree_model.joblib",  # Current directory
+        os.path.join(os.getcwd(), "network_logs_decision_tree_model.joblib"),  # Explicit current directory
+    ]
+    
+    # Try to get script directory if __file__ is available
     try:
-        model = joblib.load("network_logs_decision_tree_model.joblib")
-        return model
-    except FileNotFoundError:
-        st.warning("Model file not found. Inference will be disabled.")
-        return None
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        model_paths.insert(0, os.path.join(script_dir, "network_logs_decision_tree_model.joblib"))
+    except:
+        pass
+    
+    for path in model_paths:
+        if os.path.exists(path):
+            try:
+                model = joblib.load(path)
+                return model
+            except Exception as e:
+                continue
+    
+    st.warning("⚠️ Model file not found. Inference will be disabled.")
+    st.info(f"💡 Looking for model in: {os.getcwd()}")
+    return None
 
 # Initialize session state
 if 'data' not in st.session_state:
@@ -72,7 +108,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigate to:",
-    ["📊 Data Overview", "📈 Exploratory Data Analysis", "🤖 Model Results", "🔮 Inference", "📚 About"]
+    ["📊 Data Overview", "📈 Exploratory Data Analysis", "🤖 Model Results", "🔮 Inference", "📅 Time Series Forecast", "📚 About"]
 )
 
 # Main content based on page selection
@@ -888,6 +924,471 @@ elif page == "🔮 Inference":
     **Coming Soon:** Upload a CSV file with multiple network logs for batch classification.
     The CSV should contain columns: Request_Type, Protocol, Status, Port, Payload_Size, User_Agent
     """)
+
+elif page == "📅 Time Series Forecast":
+    st.markdown('<div class="main-header">Time Series Forecasting</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Import time series module with error handling
+    try:
+        import sys
+        import warnings
+        warnings.filterwarnings('ignore')
+        
+        # Suppress TensorFlow warnings and set environment before import
+        import os
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        
+        from time_series_forecasting import (
+            load_time_series_data, aggregate_hourly_traffic,
+            forecast_arima, forecast_holt_winters, forecast_prophet, forecast_lstm,
+            detect_anomalies_zscore, evaluate_forecast, seasonal_decomposition
+        )
+    except ImportError as e:
+        st.error(f"⚠️ Time series forecasting module not found: {str(e)}")
+        st.info("Please ensure time_series_forecasting.py is in the directory.")
+        st.stop()
+    except Exception as e:
+        st.error(f"⚠️ Error loading time series module: {str(e)}")
+        st.stop()
+    
+    # Show loading message immediately
+    status_placeholder = st.empty()
+    status_placeholder.info("⏳ Loading time series data...")
+    
+    # Load time series data
+    @st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour, no spinner
+    def load_ts_data():
+        """Load time series data"""
+        try:
+            return load_time_series_data("Time-Series_Network_logs.csv")
+        except Exception as e:
+            return None
+    
+    # Cache aggregated data
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def get_aggregated_data(ts_data):
+        """Aggregate time series data - cached for performance"""
+        if ts_data is None:
+            return None, None, None
+        try:
+            return aggregate_hourly_traffic(ts_data)
+        except Exception as e:
+            return None, None, None
+    
+    ts_data = load_ts_data()
+    status_placeholder.empty()  # Clear loading message
+    
+    if ts_data is None:
+        st.error("⚠️ Error loading time series data. Please ensure 'Time-Series_Network_logs.csv' exists.")
+        st.info("💡 The file should have a 'Timestamp' column and 'Intrusion' column.")
+        st.stop()
+    
+    # Aggregate data (cached)
+    status_placeholder = st.empty()
+    status_placeholder.info("⏳ Processing time series data...")
+    hourly_traffic, hourly_malicious, hourly_normal = get_aggregated_data(ts_data)
+    status_placeholder.empty()  # Clear loading message
+    
+    if hourly_traffic is None or len(hourly_traffic) == 0:
+        st.error("⚠️ Error aggregating time series data.")
+        st.stop()
+    
+    # Continue if data is loaded successfully
+    st.header("📊 Time Series Overview")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Hourly Points", len(hourly_traffic))
+    with col2:
+        st.metric("Total Traffic", f"{hourly_traffic.sum():,}")
+    with col3:
+        st.metric("Malicious Traffic", f"{hourly_malicious.sum():,}", 
+                 delta=f"{(hourly_malicious.sum()/hourly_traffic.sum()*100):.2f}%")
+    
+    # Visualization tabs - lazy load to prevent blocking
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📈 Traffic Trends", 
+        "🔮 Forecasting", 
+        "🔍 Anomaly Detection",
+        "📉 Seasonal Decomposition"
+    ])
+    
+    with tab1:
+        st.subheader("Hourly Network Traffic Trends")
+        
+        # Limit data points for faster rendering
+        max_points = 500
+        if len(hourly_traffic) > max_points:
+            # Sample data for display
+            step = len(hourly_traffic) // max_points
+            display_traffic = hourly_traffic[::step]
+            display_malicious = hourly_malicious[::step]
+            display_normal = hourly_normal[::step]
+        else:
+            display_traffic = hourly_traffic
+            display_malicious = hourly_malicious
+            display_normal = hourly_normal
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=display_traffic.index,
+            y=display_traffic.values,
+            mode='lines',
+            name='Total Traffic',
+            line=dict(color='blue', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=display_malicious.index,
+            y=display_malicious.values,
+            mode='lines',
+            name='Malicious Traffic',
+            line=dict(color='red', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=display_normal.index,
+            y=display_normal.values,
+            mode='lines',
+            name='Normal Traffic',
+            line=dict(color='green', width=2)
+        ))
+        
+        fig.update_layout(
+            title="Network Traffic Over Time",
+            xaxis_title="Timestamp",
+            yaxis_title="Number of Requests",
+            hovermode='x unified',
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        st.subheader("Traffic Forecasting")
+        
+        # Forecast parameters
+        col1, col2 = st.columns(2)
+        with col1:
+            forecast_hours = st.slider("Forecast Hours", 1, 48, 24)
+        with col2:
+            selected_model = st.selectbox(
+                "Select Forecasting Model",
+                ["ARIMA", "Holt-Winters", "Prophet", "LSTM", "Compare All"]
+            )
+        
+        # Warning for slow models
+        if selected_model in ["LSTM", "Compare All"]:
+            st.warning("⚠️ LSTM training may take 30-60 seconds. For faster results, use ARIMA or Holt-Winters.")
+        
+        # Split data (simple, no caching needed - fast operation)
+        train_size = int(len(hourly_traffic) * 0.8)
+        train = hourly_traffic[:train_size]
+        test = hourly_traffic[train_size:train_size+forecast_hours] if len(hourly_traffic) > train_size + forecast_hours else hourly_traffic[train_size:]
+        
+        if st.button("🔮 Generate Forecast", use_container_width=True):
+                forecasts = {}
+                forecast_placeholder = st.empty()
+                metrics_placeholder = st.empty()
+                
+                # Create forecast index
+                last_timestamp = hourly_traffic.index[-1]
+                forecast_index = pd.date_range(
+                    start=last_timestamp + pd.Timedelta(hours=1),
+                    periods=forecast_hours,
+                    freq='H'
+                )
+                
+                # Train size for historical display
+                train_size = int(len(hourly_traffic) * 0.8)
+                train_display = hourly_traffic[:train_size]
+                
+                # ARIMA - Fast, show immediately
+                if selected_model in ["ARIMA", "Compare All"]:
+                    with st.spinner("Training ARIMA model..."):
+                        arima_forecast, _ = forecast_arima(train, forecast_steps=forecast_hours)
+                        if arima_forecast is not None:
+                            forecasts['ARIMA'] = arima_forecast
+                            # Show immediately
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=train_display.index[-48:],
+                                y=train_display.values[-48:],
+                                mode='lines',
+                                name='Historical Traffic',
+                                line=dict(color='blue', width=2)
+                            ))
+                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                     'Prophet': 'green', 'LSTM': 'brown'}
+                            fig.add_trace(go.Scatter(
+                                x=forecast_index,
+                                y=arima_forecast,
+                                mode='lines',
+                                name='ARIMA Forecast',
+                                line=dict(color=colors['ARIMA'], width=2, dash='dash')
+                            ))
+                            fig.update_layout(
+                                title="Network Traffic Forecast (ARIMA Ready)",
+                                xaxis_title="Timestamp",
+                                yaxis_title="Number of Requests",
+                                hovermode='x unified',
+                                height=500
+                            )
+                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                
+                # Holt-Winters - Fast, show immediately
+                if selected_model in ["Holt-Winters", "Compare All"]:
+                    with st.spinner("Training Holt-Winters model..."):
+                        hw_forecast, _ = forecast_holt_winters(train, forecast_steps=forecast_hours)
+                        if hw_forecast is not None:
+                            forecasts['Holt-Winters'] = hw_forecast
+                            # Update plot with Holt-Winters
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=train_display.index[-48:],
+                                y=train_display.values[-48:],
+                                mode='lines',
+                                name='Historical Traffic',
+                                line=dict(color='blue', width=2)
+                            ))
+                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                     'Prophet': 'green', 'LSTM': 'brown'}
+                            for model_name, forecast_values in forecasts.items():
+                                fig.add_trace(go.Scatter(
+                                    x=forecast_index,
+                                    y=forecast_values,
+                                    mode='lines',
+                                    name=f'{model_name} Forecast',
+                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                                ))
+                            fig.update_layout(
+                                title="Network Traffic Forecast (Updating...)",
+                                xaxis_title="Timestamp",
+                                yaxis_title="Number of Requests",
+                                hovermode='x unified',
+                                height=500
+                            )
+                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                
+                # Prophet - Medium speed, add when ready
+                if selected_model in ["Prophet", "Compare All"]:
+                    with st.spinner("Training Prophet model (this may take 10-15 seconds)..."):
+                        prophet_forecast, _ = forecast_prophet(train, forecast_steps=forecast_hours)
+                        if prophet_forecast is not None:
+                            # Extract forecast values
+                            prophet_values = prophet_forecast['yhat'][-forecast_hours:].values
+                            forecasts['Prophet'] = prophet_values
+                            # Update plot with Prophet
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=train_display.index[-48:],
+                                y=train_display.values[-48:],
+                                mode='lines',
+                                name='Historical Traffic',
+                                line=dict(color='blue', width=2)
+                            ))
+                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                     'Prophet': 'green', 'LSTM': 'brown'}
+                            for model_name, forecast_values in forecasts.items():
+                                fig.add_trace(go.Scatter(
+                                    x=forecast_index,
+                                    y=forecast_values,
+                                    mode='lines',
+                                    name=f'{model_name} Forecast',
+                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                                ))
+                            fig.update_layout(
+                                title="Network Traffic Forecast (Updating...)",
+                                xaxis_title="Timestamp",
+                                yaxis_title="Number of Requests",
+                                hovermode='x unified',
+                                height=500
+                            )
+                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                
+                # LSTM - Slow, add when ready
+                if selected_model in ["LSTM", "Compare All"]:
+                    with st.spinner("Training LSTM model (this may take 30-60 seconds)..."):
+                        lstm_forecast, _ = forecast_lstm(train, forecast_steps=forecast_hours, epochs=15)
+                        if lstm_forecast is not None:
+                            forecasts['LSTM'] = lstm_forecast
+                            # Update plot with LSTM
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=train_display.index[-48:],
+                                y=train_display.values[-48:],
+                                mode='lines',
+                                name='Historical Traffic',
+                                line=dict(color='blue', width=2)
+                            ))
+                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                     'Prophet': 'green', 'LSTM': 'brown'}
+                            for model_name, forecast_values in forecasts.items():
+                                fig.add_trace(go.Scatter(
+                                    x=forecast_index,
+                                    y=forecast_values,
+                                    mode='lines',
+                                    name=f'{model_name} Forecast',
+                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                                ))
+                            fig.update_layout(
+                                title="Network Traffic Forecast (Complete)",
+                                xaxis_title="Timestamp",
+                                yaxis_title="Number of Requests",
+                                hovermode='x unified',
+                                height=500
+                            )
+                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                
+                if forecasts:
+                    # Final plot update (if not already shown)
+                    if len(forecasts) > 0:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=train_display.index[-48:],
+                            y=train_display.values[-48:],
+                            mode='lines',
+                            name='Historical Traffic',
+                            line=dict(color='blue', width=2)
+                        ))
+                        colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                 'Prophet': 'green', 'LSTM': 'brown'}
+                        for model_name, forecast_values in forecasts.items():
+                            fig.add_trace(go.Scatter(
+                                x=forecast_index,
+                                y=forecast_values,
+                                mode='lines',
+                                name=f'{model_name} Forecast',
+                                line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                            ))
+                        fig.update_layout(
+                            title="Network Traffic Forecast",
+                            xaxis_title="Timestamp",
+                            yaxis_title="Number of Requests",
+                            hovermode='x unified',
+                            height=500
+                        )
+                        forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                    
+                    # Evaluation metrics
+                    if len(test) > 0 and len(test) == forecast_hours:
+                        st.subheader("📊 Forecast Accuracy")
+                        metrics_df = []
+                        
+                        for model_name, forecast_values in forecasts.items():
+                            if len(forecast_values) == len(test):
+                                metrics = evaluate_forecast(test.values, forecast_values)
+                                if metrics:
+                                    metrics_df.append({
+                                        'Model': model_name,
+                                        'MAE': metrics['MAE'],
+                                        'RMSE': metrics['RMSE']
+                                    })
+                        
+                        if metrics_df:
+                            metrics_df = pd.DataFrame(metrics_df)
+                            metrics_placeholder.dataframe(metrics_df, use_container_width=True)
+                            
+                            # Best model
+                            best_model = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'Model']
+                            metrics_placeholder.success(f"🏆 Best Model: **{best_model}** (Lowest RMSE)")
+                else:
+                    st.warning("⚠️ No forecasts could be generated. Please check model dependencies.")
+    
+    with tab3:
+        st.subheader("Anomaly Detection")
+        
+        threshold = st.slider("Z-Score Threshold", 1.0, 4.0, 2.0, 0.5)
+        
+        if st.button("🔍 Detect Anomalies", use_container_width=True):
+            with st.spinner("Detecting anomalies..."):
+                anomalies = detect_anomalies_zscore(hourly_traffic, threshold=threshold)
+            
+            st.metric("Anomalies Detected", len(anomalies))
+            
+            # Plot with anomalies
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=hourly_traffic.index,
+                y=hourly_traffic.values,
+                mode='lines',
+                name='Total Traffic',
+                line=dict(color='blue', width=1)
+            ))
+            
+            if len(anomalies) > 0:
+                fig.add_trace(go.Scatter(
+                    x=anomalies.index,
+                    y=anomalies.values,
+                    mode='markers',
+                    name='Anomalies',
+                    marker=dict(color='red', size=10, symbol='x')
+                ))
+            
+            fig.update_layout(
+                title=f"Anomaly Detection (Threshold: {threshold})",
+                xaxis_title="Timestamp",
+                yaxis_title="Number of Requests",
+                hovermode='x unified',
+                height=500
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Anomaly statistics
+            if len(anomalies) > 0:
+                st.subheader("Anomaly Statistics")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Anomaly Count", len(anomalies))
+                    st.metric("Anomaly Percentage", f"{(len(anomalies)/len(hourly_traffic)*100):.2f}%")
+                with col2:
+                    st.metric("Max Anomaly Value", int(anomalies.max()))
+                    st.metric("Min Anomaly Value", int(anomalies.min()))
+    
+    with tab4:
+        st.subheader("Seasonal Decomposition")
+        
+        if st.button("📉 Decompose Time Series", use_container_width=True):
+            with st.spinner("Decomposing time series..."):
+                decomposition = seasonal_decomposition(hourly_traffic, period=24)
+            
+            if decomposition is not None:
+                fig = make_subplots(
+                    rows=4, cols=1,
+                    subplot_titles=('Original', 'Trend', 'Seasonal', 'Residual'),
+                    vertical_spacing=0.1
+                )
+                
+                # Original
+                fig.add_trace(
+                    go.Scatter(x=hourly_traffic.index, y=hourly_traffic.values, name='Original'),
+                    row=1, col=1
+                )
+                
+                # Trend
+                fig.add_trace(
+                    go.Scatter(x=decomposition.trend.index, y=decomposition.trend.values, name='Trend'),
+                    row=2, col=1
+                )
+                
+                # Seasonal
+                fig.add_trace(
+                    go.Scatter(x=decomposition.seasonal.index, y=decomposition.seasonal.values, name='Seasonal'),
+                    row=3, col=1
+                )
+                
+                # Residual
+                fig.add_trace(
+                    go.Scatter(x=decomposition.resid.index, y=decomposition.resid.values, name='Residual'),
+                    row=4, col=1
+                )
+                
+                fig.update_layout(height=800, showlegend=False)
+                fig.update_xaxes(title_text="Timestamp", row=4, col=1)
+                fig.update_yaxes(title_text="Value", row=2, col=1)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Could not perform decomposition. Check data requirements.")
 
 else:  # About page
     st.markdown('<div class="main-header">About This Project</div>', unsafe_allow_html=True)

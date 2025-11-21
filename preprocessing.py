@@ -6,19 +6,54 @@ This module handles the same preprocessing pipeline used during training.
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+import os
+import joblib
+
+
+# Define the category mappings based on training data
+# These should match the order from the training dataset
+CATEGORY_MAPPINGS = {
+    'Request_Type': ['DNS', 'FTP', 'HTTP', 'HTTPS', 'SMTP', 'SSH', 'Telnet'],
+    'Protocol': ['ICMP', 'TCP', 'UDP'],
+    'User_Agent': ['Mozilla/5.0', 'Nikto/2.1.6', 'Wget/1.20.3', 'curl/7.68.0', 
+                   'nmap/7.80', 'python-requests/2.25.1'],
+    'Status': ['Failure', 'Success'],
+    'Port': [21, 22, 23, 25, 53, 80, 135, 443, 4444, 6667, 8080, 31337]
+}
+
+
+def encode_categorical_value(value, category_list):
+    """
+    Encode a categorical value to its category code.
+    
+    Args:
+        value: The categorical value to encode
+        category_list: List of all possible categories in order
+    
+    Returns:
+        The category code (integer)
+    """
+    try:
+        return category_list.index(value)
+    except ValueError:
+        # If value not in list, return -1 or use a default
+        # For inference, we'll use the first category as default
+        return 0
 
 
 def preprocess_for_inference(input_data, scaler=None, return_scaler=False):
     """
     Preprocess input data for model inference.
+    This matches the preprocessing used during training: category codes, not one-hot encoding.
     
     Args:
         input_data: Dictionary or DataFrame with input features
-        scaler: Fitted StandardScaler (if None, will fit new one)
+        scaler: Fitted StandardScaler (if None, will fit new one - not recommended)
         return_scaler: Whether to return the scaler
     
     Returns:
-        Preprocessed DataFrame ready for model prediction
+        Preprocessed DataFrame ready for model prediction with columns:
+        ['Port', 'Request_Type', 'Protocol', 'Payload_Size', 'User_Agent', 'Status']
     """
     # Convert dict to DataFrame if needed
     if isinstance(input_data, dict):
@@ -29,12 +64,6 @@ def preprocess_for_inference(input_data, scaler=None, return_scaler=False):
     # Drop IPs (not used in training)
     df = df.drop(['Source_IP', 'Destination_IP'], axis=1, errors='ignore')
     
-    # Define categorical columns (as in training)
-    categorical_cols = ['Request_Type', 'Protocol', 'User_Agent', 'Status', 'Port']
-    
-    # One-hot encode categorical features
-    df = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
-    
     # Drop Intrusion (dropped during training for better generalization)
     df = df.drop(['Intrusion'], axis=1, errors='ignore')
     
@@ -42,37 +71,46 @@ def preprocess_for_inference(input_data, scaler=None, return_scaler=False):
     df = df.drop(['Scan_Type'], axis=1, errors='ignore')
     df = df.drop(['Scan_Type_Label'], axis=1, errors='ignore')
     
-    # Expected columns after one-hot encoding (from training)
-    expected_columns = [
-        'Payload_Size',
-        'Request_Type_DNS', 'Request_Type_FTP', 'Request_Type_HTTP', 
-        'Request_Type_HTTPS', 'Request_Type_SMTP', 'Request_Type_SSH', 
-        'Request_Type_Telnet',
-        'Protocol_ICMP', 'Protocol_TCP', 'Protocol_UDP',
-        'User_Agent_Mozilla/5.0', 'User_Agent_Nikto/2.1.6',
-        'User_Agent_Wget/1.20.3', 'User_Agent_curl/7.68.0',
-        'User_Agent_nmap/7.80', 'User_Agent_python-requests/2.25.1',
-        'Status_Failure', 'Status_Success',
-        'Port_21', 'Port_22', 'Port_23', 'Port_25', 'Port_53', 'Port_80',
-        'Port_135', 'Port_443', 'Port_4444', 'Port_6667', 'Port_8080', 'Port_31337'
-    ]
+    # Encode categorical columns using category codes (matching training)
+    categorical_cols = ['Request_Type', 'Protocol', 'User_Agent', 'Status', 'Port']
     
-    # Add missing columns with zeros
+    for col in categorical_cols:
+        if col in df.columns:
+            if col == 'Port':
+                # Port is numeric, but we need to map it to category code
+                df[col] = df[col].astype(int)
+                df[col] = df[col].apply(lambda x: encode_categorical_value(x, CATEGORY_MAPPINGS[col]))
+            else:
+                # For string categories, encode to category code
+                df[col] = df[col].astype(str)
+                df[col] = df[col].apply(lambda x: encode_categorical_value(x, CATEGORY_MAPPINGS[col]))
+    
+    # Ensure Payload_Size is numeric
+    if 'Payload_Size' in df.columns:
+        df['Payload_Size'] = pd.to_numeric(df['Payload_Size'], errors='coerce').fillna(0)
+    
+    # Scale Payload_Size (using the same scaler from training if available)
+    # Note: In production, you should load the saved scaler
+    if 'Payload_Size' in df.columns:
+        if scaler is None:
+            # Use statistics from training data (calculated from Network_logs.csv)
+            # Mean: 1598.76, Std: 915.62
+            mean_payload = 1598.76
+            std_payload = 915.62
+            df['Payload_Size'] = (df['Payload_Size'] - mean_payload) / std_payload
+        else:
+            df['Payload_Size'] = scaler.transform(df[['Payload_Size']])
+    
+    # Select and order columns to match training
+    expected_columns = ['Port', 'Request_Type', 'Protocol', 'Payload_Size', 'User_Agent', 'Status']
+    
+    # Ensure all expected columns exist
     for col in expected_columns:
         if col not in df.columns:
             df[col] = 0
     
-    # Reorder columns to match training order
-    df = df.reindex(columns=expected_columns, fill_value=0)
-    
-    # Scale Payload_Size
-    if 'Payload_Size' in df.columns:
-        if scaler is None:
-            scaler = StandardScaler()
-            # Fit with dummy data (in production, load saved scaler)
-            scaler.fit(df[['Payload_Size']])
-        
-        df['Payload_Size'] = scaler.transform(df[['Payload_Size']])
+    # Reorder columns to match training order exactly
+    df = df[expected_columns]
     
     if return_scaler:
         return df, scaler
@@ -106,4 +144,3 @@ def create_sample_input(request_type, protocol, status, port, payload_size, user
         'User_Agent': user_agent,
         'Intrusion': intrusion
     }
-
