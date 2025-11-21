@@ -1085,162 +1085,61 @@ elif page == "📅 Time Series Forecast":
         test = hourly_traffic[train_size:train_size+forecast_hours] if len(hourly_traffic) > train_size + forecast_hours else hourly_traffic[train_size:]
         
         if st.button("🔮 Generate Forecast", use_container_width=True):
-                forecasts = {}
-                forecast_placeholder = st.empty()
-                metrics_placeholder = st.empty()
-                
-                # Create forecast index
-                last_timestamp = hourly_traffic.index[-1]
-                forecast_index = pd.date_range(
-                    start=last_timestamp + pd.Timedelta(hours=1),
-                    periods=forecast_hours,
-                    freq='H'
-                )
-                
-                # Train size for historical display
-                train_size = int(len(hourly_traffic) * 0.8)
-                train_display = hourly_traffic[:train_size]
-                
-                # ARIMA - Fast, show immediately
-                if selected_model in ["ARIMA", "Compare All"]:
-                    with st.spinner("Training ARIMA model..."):
-                        arima_forecast, _ = forecast_arima(train, forecast_steps=forecast_hours)
-                        if arima_forecast is not None:
-                            forecasts['ARIMA'] = arima_forecast
-                            # Show immediately
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=train_display.index[-48:],
-                                y=train_display.values[-48:],
-                                mode='lines',
-                                name='Historical Traffic',
-                                line=dict(color='blue', width=2)
-                            ))
-                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
-                                     'Prophet': 'green', 'LSTM': 'brown'}
-                            fig.add_trace(go.Scatter(
-                                x=forecast_index,
-                                y=arima_forecast,
-                                mode='lines',
-                                name='ARIMA Forecast',
-                                line=dict(color=colors['ARIMA'], width=2, dash='dash')
-                            ))
-                            fig.update_layout(
-                                title="Network Traffic Forecast (ARIMA Ready)",
-                                xaxis_title="Timestamp",
-                                yaxis_title="Number of Requests",
-                                hovermode='x unified',
-                                height=500
-                            )
-                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
-                
-                # Holt-Winters - Fast, show immediately
-                if selected_model in ["Holt-Winters", "Compare All"]:
-                    with st.spinner("Training Holt-Winters model..."):
-                        hw_forecast, _ = forecast_holt_winters(train, forecast_steps=forecast_hours)
-                        if hw_forecast is not None:
-                            forecasts['Holt-Winters'] = hw_forecast
-                            # Update plot with Holt-Winters
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=train_display.index[-48:],
-                                y=train_display.values[-48:],
-                                mode='lines',
-                                name='Historical Traffic',
-                                line=dict(color='blue', width=2)
-                            ))
-                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
-                                     'Prophet': 'green', 'LSTM': 'brown'}
-                            for model_name, forecast_values in forecasts.items():
-                                fig.add_trace(go.Scatter(
-                                    x=forecast_index,
-                                    y=forecast_values,
-                                    mode='lines',
-                                    name=f'{model_name} Forecast',
-                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
-                                ))
-                            fig.update_layout(
-                                title="Network Traffic Forecast (Updating...)",
-                                xaxis_title="Timestamp",
-                                yaxis_title="Number of Requests",
-                                hovermode='x unified',
-                                height=500
-                            )
-                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
-                
-                # Prophet - Medium speed, add when ready
-                if selected_model in ["Prophet", "Compare All"]:
-                    with st.spinner("Training Prophet model (this may take 10-15 seconds)..."):
-                        prophet_forecast, _ = forecast_prophet(train, forecast_steps=forecast_hours)
-                        if prophet_forecast is not None:
-                            # Extract forecast values
-                            prophet_values = prophet_forecast['yhat'][-forecast_hours:].values
-                            forecasts['Prophet'] = prophet_values
-                            # Update plot with Prophet
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=train_display.index[-48:],
-                                y=train_display.values[-48:],
-                                mode='lines',
-                                name='Historical Traffic',
-                                line=dict(color='blue', width=2)
-                            ))
-                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
-                                     'Prophet': 'green', 'LSTM': 'brown'}
-                            for model_name, forecast_values in forecasts.items():
-                                fig.add_trace(go.Scatter(
-                                    x=forecast_index,
-                                    y=forecast_values,
-                                    mode='lines',
-                                    name=f'{model_name} Forecast',
-                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
-                                ))
-                            fig.update_layout(
-                                title="Network Traffic Forecast (Updating...)",
-                                xaxis_title="Timestamp",
-                                yaxis_title="Number of Requests",
-                                hovermode='x unified',
-                                height=500
-                            )
-                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
-                
-                # LSTM - Slow, add when ready
-                if selected_model in ["LSTM", "Compare All"]:
-                    with st.spinner("Training LSTM model (this may take 30-60 seconds)..."):
-                        lstm_forecast, _ = forecast_lstm(train, forecast_steps=forecast_hours, epochs=15)
-                        if lstm_forecast is not None:
-                            forecasts['LSTM'] = lstm_forecast
-                            # Update plot with LSTM
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=train_display.index[-48:],
-                                y=train_display.values[-48:],
-                                mode='lines',
-                                name='Historical Traffic',
-                                line=dict(color='blue', width=2)
-                            ))
-                            colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
-                                     'Prophet': 'green', 'LSTM': 'brown'}
-                            for model_name, forecast_values in forecasts.items():
-                                fig.add_trace(go.Scatter(
-                                    x=forecast_index,
-                                    y=forecast_values,
-                                    mode='lines',
-                                    name=f'{model_name} Forecast',
-                                    line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
-                                ))
-                            fig.update_layout(
-                                title="Network Traffic Forecast (Complete)",
-                                xaxis_title="Timestamp",
-                                yaxis_title="Number of Requests",
-                                hovermode='x unified',
-                                height=500
-                            )
-                            forecast_placeholder.plotly_chart(fig, use_container_width=True)
-                
-                if forecasts:
-                    # Final plot update (if not already shown)
-                    if len(forecasts) > 0:
+            forecasts = {}
+            forecast_placeholder = st.empty()
+            
+            # Create forecast index
+            last_timestamp = hourly_traffic.index[-1]
+            forecast_index = pd.date_range(
+                start=last_timestamp + pd.Timedelta(hours=1),
+                periods=forecast_hours,
+                freq='H'
+            )
+            
+            # Train size for historical display
+            train_size_display = int(len(hourly_traffic) * 0.8)
+            train_display = hourly_traffic[:train_size_display]
+            
+            # ARIMA - Fast, show immediately
+            if selected_model in ["ARIMA", "Compare All"]:
+                with st.spinner("Training ARIMA model..."):
+                    arima_forecast, _ = forecast_arima(train, forecast_steps=forecast_hours)
+                    if arima_forecast is not None:
+                        forecasts['ARIMA'] = arima_forecast
+                        # Show immediately
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=train_display.index[-48:],
+                            y=train_display.values[-48:],
+                            mode='lines',
+                            name='Historical Traffic',
+                            line=dict(color='blue', width=2)
+                        ))
+                        colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                 'Prophet': 'green', 'LSTM': 'brown'}
+                        fig.add_trace(go.Scatter(
+                            x=forecast_index,
+                            y=arima_forecast,
+                            mode='lines',
+                            name='ARIMA Forecast',
+                            line=dict(color=colors['ARIMA'], width=2, dash='dash')
+                        ))
+                        fig.update_layout(
+                            title="Network Traffic Forecast (ARIMA Ready)",
+                            xaxis_title="Timestamp",
+                            yaxis_title="Number of Requests",
+                            hovermode='x unified',
+                            height=500
+                        )
+                        forecast_placeholder.plotly_chart(fig, use_container_width=True)
+            
+            # Holt-Winters - Fast, show immediately
+            if selected_model in ["Holt-Winters", "Compare All"]:
+                with st.spinner("Training Holt-Winters model..."):
+                    hw_forecast, _ = forecast_holt_winters(train, forecast_steps=forecast_hours)
+                    if hw_forecast is not None:
+                        forecasts['Holt-Winters'] = hw_forecast
+                        # Update plot with Holt-Winters
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(
                             x=train_display.index[-48:],
@@ -1260,38 +1159,158 @@ elif page == "📅 Time Series Forecast":
                                 line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
                             ))
                         fig.update_layout(
-                            title="Network Traffic Forecast",
+                            title="Network Traffic Forecast (Updating...)",
                             xaxis_title="Timestamp",
                             yaxis_title="Number of Requests",
                             hovermode='x unified',
                             height=500
                         )
                         forecast_placeholder.plotly_chart(fig, use_container_width=True)
-                    
-                    # Evaluation metrics
-                    if len(test) > 0 and len(test) == forecast_hours:
-                        st.subheader("📊 Forecast Accuracy")
-                        metrics_df = []
-                        
+            
+            # Prophet - Medium speed, add when ready
+            if selected_model in ["Prophet", "Compare All"]:
+                with st.spinner("Training Prophet model (this may take 10-15 seconds)..."):
+                    prophet_forecast, _ = forecast_prophet(train, forecast_steps=forecast_hours)
+                    if prophet_forecast is not None:
+                        # Extract forecast values
+                        prophet_values = prophet_forecast['yhat'][-forecast_hours:].values
+                        forecasts['Prophet'] = prophet_values
+                        # Update plot with Prophet
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=train_display.index[-48:],
+                            y=train_display.values[-48:],
+                            mode='lines',
+                            name='Historical Traffic',
+                            line=dict(color='blue', width=2)
+                        ))
+                        colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                 'Prophet': 'green', 'LSTM': 'brown'}
                         for model_name, forecast_values in forecasts.items():
-                            if len(forecast_values) == len(test):
-                                metrics = evaluate_forecast(test.values, forecast_values)
-                                if metrics:
-                                    metrics_df.append({
-                                        'Model': model_name,
-                                        'MAE': metrics['MAE'],
-                                        'RMSE': metrics['RMSE']
-                                    })
+                            fig.add_trace(go.Scatter(
+                                x=forecast_index,
+                                y=forecast_values,
+                                mode='lines',
+                                name=f'{model_name} Forecast',
+                                line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                            ))
+                        fig.update_layout(
+                            title="Network Traffic Forecast (Updating...)",
+                            xaxis_title="Timestamp",
+                            yaxis_title="Number of Requests",
+                            hovermode='x unified',
+                            height=500
+                        )
+                        forecast_placeholder.plotly_chart(fig, use_container_width=True)
+            
+            # LSTM - Slow, add when ready
+            if selected_model in ["LSTM", "Compare All"]:
+                with st.spinner("Training LSTM model (this may take 30-60 seconds)..."):
+                    lstm_forecast, _ = forecast_lstm(train, forecast_steps=forecast_hours, epochs=15)
+                    if lstm_forecast is not None:
+                        forecasts['LSTM'] = lstm_forecast
+                        # Update plot with LSTM
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=train_display.index[-48:],
+                            y=train_display.values[-48:],
+                            mode='lines',
+                            name='Historical Traffic',
+                            line=dict(color='blue', width=2)
+                        ))
+                        colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                                 'Prophet': 'green', 'LSTM': 'brown'}
+                        for model_name, forecast_values in forecasts.items():
+                            fig.add_trace(go.Scatter(
+                                x=forecast_index,
+                                y=forecast_values,
+                                mode='lines',
+                                name=f'{model_name} Forecast',
+                                line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                            ))
+                        fig.update_layout(
+                            title="Network Traffic Forecast (Complete)",
+                            xaxis_title="Timestamp",
+                            yaxis_title="Number of Requests",
+                            hovermode='x unified',
+                            height=500
+                        )
+                        forecast_placeholder.plotly_chart(fig, use_container_width=True)
+            
+            if forecasts:
+                # Final plot update (if not already shown)
+                if len(forecasts) > 0:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=train_display.index[-48:],
+                        y=train_display.values[-48:],
+                        mode='lines',
+                        name='Historical Traffic',
+                        line=dict(color='blue', width=2)
+                    ))
+                    colors = {'ARIMA': 'orange', 'Holt-Winters': 'purple', 
+                             'Prophet': 'green', 'LSTM': 'brown'}
+                    for model_name, forecast_values in forecasts.items():
+                        fig.add_trace(go.Scatter(
+                            x=forecast_index,
+                            y=forecast_values,
+                            mode='lines',
+                            name=f'{model_name} Forecast',
+                            line=dict(color=colors.get(model_name, 'gray'), width=2, dash='dash')
+                        ))
+                    fig.update_layout(
+                        title="Network Traffic Forecast",
+                        xaxis_title="Timestamp",
+                        yaxis_title="Number of Requests",
+                        hovermode='x unified',
+                        height=500
+                    )
+                    forecast_placeholder.plotly_chart(fig, use_container_width=True)
+                
+                # Evaluation metrics - Always show below the chart
+                st.markdown("---")
+                st.subheader("📊 Forecast Accuracy")
+                
+                # Calculate metrics for all forecasts
+                metrics_df = []
+                
+                for model_name, forecast_values in forecasts.items():
+                    try:
+                        # Use test data if available and same length, otherwise use last N values from train
+                        if len(test) > 0 and len(test) == len(forecast_values):
+                            metrics = evaluate_forecast(test.values, forecast_values)
+                        elif len(forecast_values) > 0:
+                            # Use last N values from training data for comparison
+                            eval_data = train.values[-len(forecast_values):] if len(train) >= len(forecast_values) else train.values
+                            forecast_eval = forecast_values[:len(eval_data)]
+                            if len(eval_data) == len(forecast_eval):
+                                metrics = evaluate_forecast(eval_data, forecast_eval)
+                            else:
+                                metrics = None
+                        else:
+                            metrics = None
                         
-                        if metrics_df:
-                            metrics_df = pd.DataFrame(metrics_df)
-                            metrics_placeholder.dataframe(metrics_df, use_container_width=True)
-                            
-                            # Best model
-                            best_model = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'Model']
-                            metrics_placeholder.success(f"🏆 Best Model: **{best_model}** (Lowest RMSE)")
+                        if metrics:
+                            metrics_df.append({
+                                'Model': model_name,
+                                'MAE': round(metrics['MAE'], 2),
+                                'RMSE': round(metrics['RMSE'], 2)
+                            })
+                    except Exception as e:
+                        continue
+                
+                if metrics_df:
+                    metrics_df = pd.DataFrame(metrics_df)
+                    st.dataframe(metrics_df, use_container_width=True)
+                    
+                    # Best model
+                    best_model = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'Model']
+                    best_rmse = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'RMSE']
+                    st.success(f"🏆 **Best Model: {best_model}** (Lowest RMSE: {best_rmse:.2f})")
                 else:
-                    st.warning("⚠️ No forecasts could be generated. Please check model dependencies.")
+                    st.info("💡 Forecast accuracy metrics will be calculated when test data is available.")
+            else:
+                st.warning("⚠️ No forecasts could be generated. Please check model dependencies.")
     
     with tab3:
         st.subheader("Anomaly Detection")
