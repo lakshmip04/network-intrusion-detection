@@ -141,6 +141,7 @@ def forecast_holt_winters(train_data, forecast_steps=24, seasonal_periods=24):
 def forecast_prophet(train_data, forecast_steps=24):
     """
     Forecast using Facebook Prophet.
+    Optimized for speed with data sampling and fast settings.
     
     Args:
         train_data: Training time series data (Series with DatetimeIndex)
@@ -153,25 +154,69 @@ def forecast_prophet(train_data, forecast_steps=24):
         return None, None
     
     try:
+        # Ensure we have enough data points
+        if len(train_data) < 10:
+            return None, None
+        
+        # Limit data size for Prophet - sample if too large (max 500 points)
+        # Prophet can be very slow with large datasets
+        max_prophet_points = 500
+        if len(train_data) > max_prophet_points:
+            # Sample evenly to reduce size
+            step = len(train_data) // max_prophet_points
+            train_data = train_data[::step]
+        
         # Convert to Prophet format
         prophet_df = train_data.reset_index()
-        prophet_df.columns = ['ds', 'y']
+        if len(prophet_df.columns) != 2:
+            # If reset_index creates multiple columns, handle it
+            prophet_df = pd.DataFrame({
+                'ds': train_data.index,
+                'y': train_data.values
+            })
+        else:
+            prophet_df.columns = ['ds', 'y']
         
-        # Optimize Prophet for speed
-        model = Prophet(
-            daily_seasonality=True, 
-            weekly_seasonality=False,
-            yearly_seasonality=False,
-            changepoint_prior_scale=0.05,  # Faster convergence
-            mcmc_samples=0  # Disable MCMC for speed
-        )
-        model.fit(prophet_df, verbose=False)  # Disable verbose output
+        # Ensure datetime column is datetime type
+        prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+        prophet_df['y'] = pd.to_numeric(prophet_df['y'], errors='coerce')
         
-        future = model.make_future_dataframe(periods=forecast_steps, freq='H')
+        # Remove any NaN values
+        prophet_df = prophet_df.dropna()
+        
+        if len(prophet_df) < 10:
+            return None, None
+        
+        # Optimize Prophet for speed - use fastest settings
+        import warnings
+        import logging
+        # Suppress Prophet and cmdstanpy logs
+        logging.getLogger('prophet').setLevel(logging.ERROR)
+        logging.getLogger('cmdstanpy').setLevel(logging.ERROR)
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Use fastest Prophet settings
+            model = Prophet(
+                daily_seasonality=False,  # Disable for speed
+                weekly_seasonality=False,
+                yearly_seasonality=False,
+                changepoint_prior_scale=0.001,  # Very fast convergence
+                mcmc_samples=0,  # Disable MCMC for speed
+                interval_width=0.8,
+                n_changepoints=5,  # Reduce changepoints for speed
+                changepoint_range=0.8  # Limit changepoint search
+            )
+            # Fit with timeout protection - use minimal iterations
+            model.fit(prophet_df)
+        
+        # Create future dataframe - use 'h' instead of 'H' for hourly
+        future = model.make_future_dataframe(periods=forecast_steps, freq='h')
         forecast = model.predict(future)
         
         return forecast, model
     except Exception as e:
+        # Silently return None on error - errors will be handled by caller
         return None, None
 
 

@@ -557,6 +557,17 @@ elif page == "🤖 Model Results":
         
         results_df = pd.DataFrame(model_results)
         
+        # Highlight most accurate models
+        st.info("""
+        📊 **Accuracy Ranking**: 
+        - 🥇 **Random Forest & XGBoost**: 99.96% (Most Accurate)
+        - 🥈 **Decision Tree & Logistic Regression**: 99.92%
+        - 🥉 **MLP**: 99.70%
+        - **KNN**: 97.78%
+        
+        *Note: Decision Tree was selected for interpretability, not maximum accuracy.*
+        """)
+        
         # Display metrics
         st.dataframe(results_df, use_container_width=True)
         
@@ -657,14 +668,18 @@ elif page == "🤖 Model Results":
         st.markdown("---")
         
         # Best Model Selection
-        st.header("🏆 Best Model: Decision Tree")
+        st.header("🏆 Model Selection: Decision Tree")
         
-        st.success("""
-        **Decision Tree Classifier** was selected as the final model based on:
-        - High accuracy (99.92%)
-        - Excellent performance across all metrics
-        - Interpretability and feature importance analysis
-        - Fast inference time
+        st.info("""
+        **Note**: While **Random Forest** and **XGBoost** achieved slightly higher accuracy (99.96% vs 99.92%), 
+        **Decision Tree** was selected as the final model based on:
+        - ✅ **Interpretability**: Easy to understand and explain decisions
+        - ✅ **Speed**: Fastest inference time
+        - ✅ **Still excellent accuracy**: 99.92% is very high performance
+        - ✅ **Feature importance**: Clear feature importance visualization
+        - ✅ **Explainability**: Can visualize the decision path
+        
+        **For production use**, Random Forest or XGBoost would be better choices if accuracy is the primary concern.
         """)
         
         # Detailed metrics for Decision Tree
@@ -1169,8 +1184,10 @@ elif page == "📅 Time Series Forecast":
             
             # Prophet - Medium speed, add when ready
             if selected_model in ["Prophet", "Compare All"]:
-                with st.spinner("Training Prophet model (this may take 10-15 seconds)..."):
-                    prophet_forecast, _ = forecast_prophet(train, forecast_steps=forecast_hours)
+                with st.spinner("Training Prophet model (this may take 15-30 seconds)..."):
+                    # Use a smaller sample for Prophet to avoid hanging
+                    prophet_train = train if len(train) <= 200 else train[-200:]
+                    prophet_forecast, _ = forecast_prophet(prophet_train, forecast_steps=forecast_hours)
                     if prophet_forecast is not None:
                         # Extract forecast values
                         prophet_values = prophet_forecast['yhat'][-forecast_hours:].values
@@ -1450,7 +1467,8 @@ else:  # About page
     
     - **Class Imbalance**: Normal traffic dominates (90.4%), while attack types are underrepresented
     - **High Performance**: All models achieved >97% accuracy
-    - **Best Model**: Decision Tree with 99.92% accuracy
+    - **Selected Model**: Decision Tree with 99.92% accuracy (chosen for interpretability)
+    - **Most Accurate Models**: Random Forest & XGBoost with 99.96% accuracy
     - **Feature Importance**: Payload size, Status, and Protocol are key discriminators
     
     ### 🛠️ Technology Stack
